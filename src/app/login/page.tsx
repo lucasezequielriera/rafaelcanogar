@@ -27,6 +27,8 @@ export default function LoginPage() {
       }
       router.refresh();
       router.push("/obras");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Error de conexión. Revise .env.local y reinicie npm run dev.");
     } finally {
       setLoading(false);
     }
