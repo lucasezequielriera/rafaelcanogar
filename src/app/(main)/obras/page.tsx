@@ -2,12 +2,19 @@ import Link from "next/link";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { puedeEscribir } from "@/lib/permisos-logica";
 import { requireLectura } from "@/lib/require-permiso";
+import { PaginacionEnlaces } from "@/components/PaginacionEnlaces";
+import { PAGE_SIZE_TABLAS, parsePageUnoBased, totalPaginas } from "@/lib/paginacion";
+import { unidadesDisponiblesSinPrestamo } from "@/lib/obras-disponibles";
+import { ObrasFilaAcciones } from "./ObrasFilaAcciones";
 
 type Search = { [key: string]: string | string[] | undefined };
 
 export default async function ObrasPage({ searchParams }: { searchParams: Promise<Search> }) {
   const sesion = await requireLectura("obras");
   const puedeNuevaObra = puedeEscribir(sesion.niveles, "obras", sesion.isOwner);
+  const puedePrestamoDesdeTabla = puedeEscribir(sesion.niveles, "ubicaciones_historial", sesion.isOwner);
+  const puedeVentaDesdeTabla = puedeEscribir(sesion.niveles, "ventas", sesion.isOwner);
+  const puedeBajaEjemplarDesdeTabla = puedeEscribir(sesion.niveles, "ejemplares", sesion.isOwner);
 
   const sp = await searchParams;
   const supabase = await createSupabaseServerClient();
@@ -18,17 +25,51 @@ export default async function ObrasPage({ searchParams }: { searchParams: Promis
   const altoMin = typeof sp.alto_min_cm === "string" && sp.alto_min_cm ? Number(sp.alto_min_cm) : null;
   const material = typeof sp.material === "string" ? sp.material.trim() : "";
 
-  let query = supabase.from("obras").select("*").order("numero_catalogo", { ascending: true });
+  const rawPage = parsePageUnoBased(sp.page);
 
+  let countQ = supabase.from("obras").select("id", { count: "exact", head: true });
   if (q) {
-    query = query.or(`nombre.ilike.%${q}%,numero_catalogo.ilike.%${q}%,material.ilike.%${q}%`);
+    countQ = countQ.or(`nombre.ilike.%${q}%,numero_catalogo.ilike.%${q}%,material.ilike.%${q}%`);
   }
-  if (anioMin != null && Number.isFinite(anioMin)) query = query.gte("anio", anioMin);
-  if (anioMax != null && Number.isFinite(anioMax)) query = query.lte("anio", anioMax);
-  if (altoMin != null && Number.isFinite(altoMin)) query = query.gte("alto_cm", altoMin);
-  if (material) query = query.ilike("material", `%${material}%`);
+  if (anioMin != null && Number.isFinite(anioMin)) countQ = countQ.gte("anio", anioMin);
+  if (anioMax != null && Number.isFinite(anioMax)) countQ = countQ.lte("anio", anioMax);
+  if (altoMin != null && Number.isFinite(altoMin)) countQ = countQ.gte("alto_cm", altoMin);
+  if (material) countQ = countQ.ilike("material", `%${material}%`);
 
-  const { data: obras, error } = await query;
+  const { count: totalCount } = await countQ;
+  const totalItems = totalCount ?? 0;
+  const page = Math.min(rawPage, totalPaginas(totalItems, PAGE_SIZE_TABLAS));
+  const from = (page - 1) * PAGE_SIZE_TABLAS;
+  const to = from + PAGE_SIZE_TABLAS - 1;
+
+  let dataQ = supabase.from("obras").select("*");
+  if (q) {
+    dataQ = dataQ.or(`nombre.ilike.%${q}%,numero_catalogo.ilike.%${q}%,material.ilike.%${q}%`);
+  }
+  if (anioMin != null && Number.isFinite(anioMin)) dataQ = dataQ.gte("anio", anioMin);
+  if (anioMax != null && Number.isFinite(anioMax)) dataQ = dataQ.lte("anio", anioMax);
+  if (altoMin != null && Number.isFinite(altoMin)) dataQ = dataQ.gte("alto_cm", altoMin);
+  if (material) dataQ = dataQ.ilike("material", `%${material}%`);
+
+  const { data: obras, error } = await dataQ.order("numero_catalogo", { ascending: true }).range(from, to);
+
+  const obraIds = (obras ?? []).map((o) => o.id);
+  const prestamosPorObra = new Map<string, number>();
+  if (obraIds.length > 0) {
+    const { data: prestRows } = await supabase.from("ejemplares").select("obra_id").eq("estado", "en_prestamo").in("obra_id", obraIds);
+    for (const r of prestRows ?? []) {
+      const oid = String((r as { obra_id: string }).obra_id);
+      prestamosPorObra.set(oid, (prestamosPorObra.get(oid) ?? 0) + 1);
+    }
+  }
+
+  const preserveParams: Record<string, string | undefined> = {
+    q: q || undefined,
+    anio_min: typeof sp.anio_min === "string" && sp.anio_min ? sp.anio_min : undefined,
+    anio_max: typeof sp.anio_max === "string" && sp.anio_max ? sp.anio_max : undefined,
+    alto_min_cm: typeof sp.alto_min_cm === "string" && sp.alto_min_cm ? sp.alto_min_cm : undefined,
+    material: material || undefined,
+  };
 
   return (
     <div className="space-y-8">
@@ -88,36 +129,82 @@ export default async function ObrasPage({ searchParams }: { searchParams: Promis
 
       {error ? (
         <p className="rounded-lg bg-red-50 p-4 text-red-900">No se pudieron cargar las obras: {error.message}</p>
-      ) : !obras?.length ? (
+      ) : totalItems === 0 ? (
         <p className="text-stone-600">No hay obras que coincidan. Cree la primera o importe un CSV.</p>
       ) : (
-        <ul className="grid gap-4 sm:grid-cols-2">
-          {obras.map((o) => (
-            <li key={o.id}>
-              <Link
-                href={`/obras/${o.id}`}
-                className="block rounded-2xl border border-stone-200 bg-white p-5 shadow-sm transition hover:border-stone-400 hover:shadow"
-              >
-                <p className="text-sm font-medium uppercase tracking-wide text-stone-500">Cat. {o.numero_catalogo}</p>
-                <h2 className="mt-1 text-2xl font-semibold text-stone-900">{o.nombre}</h2>
-                <dl className="mt-3 grid grid-cols-2 gap-2 text-base text-stone-600">
-                  <div>
-                    <dt className="text-stone-500">Año</dt>
-                    <dd>{o.anio ?? "—"}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-stone-500">Precio neto (€)</dt>
-                    <dd>{o.precio_neto_estimado != null ? Number(o.precio_neto_estimado).toLocaleString("es-ES") : "—"}</dd>
-                  </div>
-                  <div className="col-span-2">
-                    <dt className="text-stone-500">Material</dt>
-                    <dd className="line-clamp-2">{o.material ?? "—"}</dd>
-                  </div>
-                </dl>
-              </Link>
-            </li>
-          ))}
-        </ul>
+        <div className="overflow-x-auto rounded-2xl border border-stone-200 bg-white shadow-sm">
+          <table className="min-w-full text-left text-base">
+            <thead className="bg-stone-100 text-stone-800">
+              <tr>
+                <th className="px-4 py-3">Nº catálogo</th>
+                <th className="px-4 py-3 min-w-[12rem]">Obra</th>
+                <th className="px-4 py-3 whitespace-nowrap">Año</th>
+                <th className="px-4 py-3 whitespace-nowrap">Precio neto (€)</th>
+                <th className="px-4 py-3 whitespace-nowrap">Ejemplares (disp. / total)</th>
+                <th className="px-3 py-3 text-right min-w-[14rem]">Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              {obras.map((o) => {
+                const tot = o.unidades_totales ?? 0;
+                const nPrest = prestamosPorObra.get(o.id) ?? 0;
+                const disp = unidadesDisponiblesSinPrestamo(o.unidades_disponibles, nPrest);
+                return (
+                  <tr key={o.id} className="border-t border-stone-200 hover:bg-stone-50/80">
+                    <td className="px-4 py-3 align-top whitespace-nowrap">
+                      <Link href={`/obras/${o.id}`} className="font-medium text-stone-900 underline">
+                        {o.numero_catalogo}
+                      </Link>
+                    </td>
+                    <td className="px-4 py-3 align-top">
+                      <Link href={`/obras/${o.id}`} className="font-semibold text-stone-900 hover:underline">
+                        {o.nombre}
+                      </Link>
+                    </td>
+                    <td className="px-4 py-3 align-top whitespace-nowrap text-stone-800">{o.anio ?? "—"}</td>
+                    <td className="px-4 py-3 align-top whitespace-nowrap text-stone-800">
+                      {o.precio_neto_estimado != null ? Number(o.precio_neto_estimado).toLocaleString("es-ES") : "—"}
+                    </td>
+                    <td className="px-4 py-3 align-top whitespace-nowrap text-stone-800">
+                      {tot > 0 ? (
+                        <>
+                          {disp} / {tot}
+                        </>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                    <td className="px-3 py-3 align-top">
+                      <div className="flex flex-col items-end gap-1.5 sm:flex-row sm:flex-wrap sm:justify-end">
+                        {puedePrestamoDesdeTabla || puedeBajaEjemplarDesdeTabla ? (
+                          <ObrasFilaAcciones
+                            obraId={o.id}
+                            numeroCatalogo={String(o.numero_catalogo)}
+                            nombreObra={o.nombre}
+                            puedePrestamo={puedePrestamoDesdeTabla}
+                            puedeBaja={puedeBajaEjemplarDesdeTabla}
+                          />
+                        ) : null}
+                        {puedeVentaDesdeTabla ? (
+                          <Link
+                            href={`/ventas/nueva?obra_id=${encodeURIComponent(o.id)}`}
+                            className="inline-flex items-center justify-center rounded-lg border border-emerald-300/90 bg-emerald-50 px-2.5 py-1.5 text-sm font-medium text-emerald-950 hover:bg-emerald-100"
+                          >
+                            Venta
+                          </Link>
+                        ) : null}
+                        {!puedePrestamoDesdeTabla && !puedeVentaDesdeTabla && !puedeBajaEjemplarDesdeTabla ? (
+                          <span className="text-sm text-stone-500">—</span>
+                        ) : null}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          <PaginacionEnlaces pathname="/obras" preserveParams={preserveParams} page={page} totalItems={totalItems} />
+        </div>
       )}
     </div>
   );

@@ -2,13 +2,14 @@ import Link from "next/link";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { puedeEscribir } from "@/lib/permisos-logica";
 import { requireLectura } from "@/lib/require-permiso";
-import { VentasFormCliente } from "./VentasFormCliente";
+import { PaginacionEnlaces } from "@/components/PaginacionEnlaces";
+import { PAGE_SIZE_TABLAS, parsePageUnoBased, totalPaginas } from "@/lib/paginacion";
 
 type Search = { [key: string]: string | string[] | undefined };
 
 export default async function VentasPage({ searchParams }: { searchParams: Promise<Search> }) {
   const sesion = await requireLectura("ventas");
-  const puedeRegistrarVenta = puedeEscribir(sesion.niveles, "ventas", sesion.isOwner);
+  const puedeNuevaVenta = puedeEscribir(sesion.niveles, "ventas", sesion.isOwner);
 
   const sp = await searchParams;
   const supabase = await createSupabaseServerClient();
@@ -16,27 +17,33 @@ export default async function VentasPage({ searchParams }: { searchParams: Promi
   const q = typeof sp.q === "string" ? sp.q.trim() : "";
   const desde = typeof sp.desde === "string" ? sp.desde : "";
   const hasta = typeof sp.hasta === "string" ? sp.hasta : "";
+  const rawPage = parsePageUnoBased(sp.page);
 
-  let query = supabase
-    .from("ventas")
-    .select("*, ejemplares(etiqueta, obras(numero_catalogo, nombre))")
-    .order("fecha_venta", { ascending: false })
-    .limit(150);
-
-  if (desde) query = query.gte("fecha_venta", desde);
-  if (hasta) query = query.lte("fecha_venta", hasta);
+  let countQ = supabase.from("ventas").select("id", { count: "exact", head: true });
+  if (desde) countQ = countQ.gte("fecha_venta", desde);
+  if (hasta) countQ = countQ.lte("fecha_venta", hasta);
   if (q) {
-    query = query.or(
+    countQ = countQ.or(
       `comprador_nombre.ilike.%${q}%,galeria_intermediario.ilike.%${q}%,detalle.ilike.%${q}%,numero_factura.ilike.%${q}%`
     );
   }
 
-  const { data: ventas, error } = await query;
+  const { count: totalCount } = await countQ;
+  const totalItems = totalCount ?? 0;
+  const page = Math.min(rawPage, totalPaginas(totalItems, PAGE_SIZE_TABLAS));
+  const from = (page - 1) * PAGE_SIZE_TABLAS;
+  const to = from + PAGE_SIZE_TABLAS - 1;
 
-  const { data: ejemplaresOp } = await supabase
-    .from("ejemplares")
-    .select("id, etiqueta, obras(numero_catalogo, nombre)")
-    .order("created_at", { ascending: true });
+  let dataQ = supabase.from("ventas").select("*, ejemplares(etiqueta, obras(numero_catalogo, nombre))");
+  if (desde) dataQ = dataQ.gte("fecha_venta", desde);
+  if (hasta) dataQ = dataQ.lte("fecha_venta", hasta);
+  if (q) {
+    dataQ = dataQ.or(
+      `comprador_nombre.ilike.%${q}%,galeria_intermediario.ilike.%${q}%,detalle.ilike.%${q}%,numero_factura.ilike.%${q}%`
+    );
+  }
+
+  const { data: ventas, error } = await dataQ.order("fecha_venta", { ascending: false }).range(from, to);
 
   type ObraEmb = { numero_catalogo: string; nombre: string };
   function obraUnica(o: unknown): ObraEmb | null {
@@ -45,23 +52,30 @@ export default async function VentasPage({ searchParams }: { searchParams: Promi
     return o as ObraEmb;
   }
 
-  const ejemplares = ((ejemplaresOp ?? []) as { id: string; etiqueta: string | null; obras: unknown }[]).map((r) => ({
-    id: r.id,
-    etiqueta: r.etiqueta,
-    obras: obraUnica(r.obras),
-  }));
+  const preserveParams: Record<string, string | undefined> = {
+    q: q || undefined,
+    desde: desde || undefined,
+    hasta: hasta || undefined,
+  };
 
   return (
     <div className="space-y-10">
-      <div>
-        <h1 className="text-3xl font-semibold">Ventas</h1>
-        <p className="mt-1 text-stone-600">Registro detallado y búsqueda por comprador, galería o factura.</p>
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-semibold text-stone-900">Ventas</h1>
+          <p className="mt-1 text-stone-600">Listado y búsqueda por comprador, galería o factura.</p>
+        </div>
+        {puedeNuevaVenta ? (
+          <Link
+            href="/ventas/nueva"
+            className="rounded-xl bg-stone-900 px-5 py-3 text-lg font-medium text-white hover:bg-stone-800"
+          >
+            Nueva venta
+          </Link>
+        ) : null}
       </div>
 
-      <VentasFormCliente ejemplares={ejemplares} puedeRegistrar={puedeRegistrarVenta} />
-
       <section>
-        <h2 className="mb-4 text-2xl font-semibold">Listado</h2>
         <form className="mb-6 grid gap-4 rounded-2xl border border-stone-200 bg-white p-6 md:grid-cols-4" method="get">
           <label className="flex flex-col gap-2 md:col-span-2">
             <span className="font-medium">Buscar texto</span>
@@ -87,7 +101,7 @@ export default async function VentasPage({ searchParams }: { searchParams: Promi
 
         {error ? (
           <p className="text-red-800">{error.message}</p>
-        ) : !ventas?.length ? (
+        ) : totalItems === 0 ? (
           <p className="text-stone-600">No hay ventas con estos criterios.</p>
         ) : (
           <div className="overflow-x-auto rounded-2xl border border-stone-200 bg-white shadow-sm">
@@ -97,13 +111,14 @@ export default async function VentasPage({ searchParams }: { searchParams: Promi
                   <th className="px-4 py-3">Fecha</th>
                   <th className="px-4 py-3">Obra</th>
                   <th className="px-4 py-3">Ejemplar</th>
+                  <th className="px-4 py-3">Cant.</th>
                   <th className="px-4 py-3">Importe</th>
                   <th className="px-4 py-3">Comprador</th>
                   <th className="px-4 py-3">Galería</th>
                 </tr>
               </thead>
               <tbody>
-                {ventas.map((v) => {
+                {(ventas ?? []).map((v) => {
                   const ej = v.ejemplares as { etiqueta: string | null; obras: unknown } | null;
                   const obra = ej?.obras != null ? obraUnica(ej.obras) : null;
                   const obraTxt = obra ? `${obra.numero_catalogo} — ${obra.nombre}` : "—";
@@ -112,6 +127,7 @@ export default async function VentasPage({ searchParams }: { searchParams: Promi
                       <td className="px-4 py-3 whitespace-nowrap">{v.fecha_venta}</td>
                       <td className="px-4 py-3 max-w-xs">{obraTxt}</td>
                       <td className="px-4 py-3">{ej?.etiqueta ?? "—"}</td>
+                      <td className="px-4 py-3 whitespace-nowrap">{typeof v.cantidad === "number" ? v.cantidad : 1}</td>
                       <td className="px-4 py-3">
                         {v.importe != null ? `${Number(v.importe).toLocaleString("es-ES")} ${v.moneda}` : "—"}
                       </td>
@@ -122,6 +138,7 @@ export default async function VentasPage({ searchParams }: { searchParams: Promi
                 })}
               </tbody>
             </table>
+            <PaginacionEnlaces pathname="/ventas" preserveParams={preserveParams} page={page} totalItems={totalItems} />
           </div>
         )}
       </section>

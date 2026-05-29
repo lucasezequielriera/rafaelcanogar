@@ -4,6 +4,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { matrizPermisosVacia } from "@/lib/permisos-logica";
 import type { PermisosTablaValor } from "@/components/PermisosTabla";
 import type { RecursoKey } from "@/lib/recursos";
+import { NombrePerfilDestinoForm } from "../NombrePerfilDestinoForm";
 import { PermisosEditorCliente } from "../PermisosEditorCliente";
 
 type Props = { params: Promise<{ userId: string }> };
@@ -21,15 +22,20 @@ export default async function EditarPermisosUsuarioPage({ params }: Props) {
 
   const { data: destProfile } = await supabase.from("profiles").select("nombre_completo, is_owner").eq("id", userId).maybeSingle();
   if (!destProfile) notFound();
+
   if (destProfile.is_owner) {
     return (
-      <div className="space-y-4">
-        <Link href="/admin/usuarios" className="text-lg text-stone-600 underline">
-          ← Usuarios
-        </Link>
-        <p className="rounded-xl border border-stone-200 bg-white p-6 text-lg text-stone-700">
-          Los propietarios tienen acceso completo; no se gestionan permisos por filas para esta cuenta.
-        </p>
+      <div className="space-y-6">
+        <div>
+          <Link href="/admin/usuarios" className="text-lg text-stone-600 underline">
+            ← Usuarios
+          </Link>
+          <h1 className="mt-2 text-3xl font-semibold">Propietario: {destProfile.nombre_completo ?? userId.slice(0, 8)}</h1>
+          <p className="mt-2 text-stone-600">
+            Los propietarios tienen acceso completo; no se gestionan permisos por área. Puede cambiar el <strong>nombre para mostrar</strong> en pantalla.
+          </p>
+        </div>
+        <NombrePerfilDestinoForm userId={userId} nombreInicial={destProfile.nombre_completo} />
       </div>
     );
   }
@@ -43,17 +49,18 @@ export default async function EditarPermisosUsuarioPage({ params }: Props) {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <div>
         <Link href="/admin/usuarios" className="text-lg text-stone-600 underline">
           ← Usuarios
         </Link>
-        <h1 className="mt-2 text-3xl font-semibold">Permisos de {destProfile.nombre_completo ?? userId.slice(0, 8)}</h1>
+        <h1 className="mt-2 text-3xl font-semibold">Usuario de equipo: {destProfile.nombre_completo ?? userId.slice(0, 8)}</h1>
         <p className="mt-2 text-stone-600">
-          Áreas con «Sin acceso» no aparecerán en el menú. «Importar CSV» solo se muestra si el permiso de importación está en{" "}
-          <strong>Ver y modificar</strong>.
+          Ajuste el nombre y los permisos por área. «Sin acceso» oculta la sección. «Importar CSV» solo aparece con permiso de importación en <strong>Ver y modificar</strong>.
         </p>
       </div>
+
+      <NombrePerfilDestinoForm userId={userId} nombreInicial={destProfile.nombre_completo} />
 
       <PermisosEditorCliente userId={userId} inicial={inicial} />
     </div>

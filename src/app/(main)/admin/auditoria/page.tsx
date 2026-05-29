@@ -1,5 +1,7 @@
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { accionAuditEs, descripcionDetalleAudit, nombreTablaAudit } from "@/lib/auditoria-descripcion";
 import { requireLectura } from "@/lib/require-permiso";
+import { AuditoriaTablaCliente, type FilaAuditoriaUi } from "./AuditoriaTablaCliente";
 
 export default async function AuditoriaPage() {
   await requireLectura("auditoria");
@@ -12,63 +14,68 @@ export default async function AuditoriaPage() {
     .order("occurred_at", { ascending: false })
     .limit(200);
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  let miNombre: string | undefined;
-  if (user) {
-    const { data: yo } = await supabase.from("profiles").select("nombre_completo").eq("id", user.id).maybeSingle();
-    miNombre = yo?.nombre_completo ?? undefined;
+  const actorIds = [...new Set((rows ?? []).map((r) => r.actor_id).filter((id): id is string => Boolean(id)))];
+  const nombresActor: Record<string, string> = {};
+  if (actorIds.length > 0) {
+    const { data: actores } = await supabase.from("profiles").select("id, nombre_completo").in("id", actorIds);
+    for (const a of actores ?? []) {
+      const n = a.nombre_completo?.trim();
+      nombresActor[a.id] = n && n.length > 0 ? n : "Usuario sin nombre";
+    }
   }
 
-  return (
-    <div className="space-y-6">
-      <h1 className="text-3xl font-semibold">Historial de cambios</h1>
-      <p className="text-stone-600">
-        Cada alta, baja o modificación en obras, ejemplares, ventas, archivos, permisos y perfiles queda registrada con usuario y
-        fecha. Si el identificador del usuario no coincide con el suyo, es un compañero de equipo (el nombre completo solo es
-        visible en la ficha de cada usuario para propietarios).
-      </p>
+  const filas: FilaAuditoriaUi[] = (rows ?? []).map((r) => {
+    const quien = r.actor_id ? (nombresActor[r.actor_id] ?? "Usuario del equipo") : "—";
+    const accion = accionAuditEs(r.action);
+    const tipo = nombreTablaAudit(r.table_name);
+    const detalle = descripcionDetalleAudit({
+      table_name: r.table_name,
+      action: r.action,
+      old_row: r.old_row as Record<string, unknown> | null,
+      new_row: r.new_row as Record<string, unknown> | null,
+    });
+    const fechaTexto = new Date(r.occurred_at).toLocaleString("es-ES");
+    const indiceBusqueda = [fechaTexto, quien, accion, tipo, detalle, r.table_name, r.action].join(" ").toLowerCase();
 
-      {error ? (
+    return {
+      id: r.id,
+      occurred_at: r.occurred_at,
+      actor_id: r.actor_id,
+      fechaTexto,
+      quien,
+      accion,
+      tipo,
+      detalle,
+      indiceBusqueda,
+    };
+  });
+
+  if (error) {
+    return (
+      <div className="space-y-6">
+        <h1 className="text-3xl font-semibold">Historial de cambios</h1>
+        <p className="text-stone-600">
+          Registro de altas, bajas y modificaciones en obras, ejemplares, ventas, archivos, permisos y perfiles. Busque por cualquier fragmento de texto (incluye el detalle) o filtre por
+          usuario. La tabla muestra los últimos 200 movimientos.
+        </p>
         <p className="text-red-800">
           {error.message} (¿tiene permiso de «Historial de cambios» en al menos lectura?)
         </p>
-      ) : (
-        <div className="overflow-x-auto rounded-2xl border border-stone-200 bg-white shadow-sm">
-          <table className="min-w-full text-left text-sm md:text-base">
-            <thead className="bg-stone-100">
-              <tr>
-                <th className="px-3 py-3">Fecha</th>
-                <th className="px-3 py-3">Quién</th>
-                <th className="px-3 py-3">Acción</th>
-                <th className="px-3 py-3">Tabla</th>
-                <th className="px-3 py-3">Detalle</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(rows ?? []).map((r) => (
-                <tr key={r.id} className="border-t border-stone-200 align-top">
-                  <td className="px-3 py-2 whitespace-nowrap">{new Date(r.occurred_at).toLocaleString("es-ES")}</td>
-                  <td className="px-3 py-2">
-                    {r.actor_id && user?.id && r.actor_id === user.id ? miNombre ?? "Usted" : r.actor_id ? `${r.actor_id.slice(0, 8)}…` : "—"}
-                  </td>
-                  <td className="px-3 py-2">{r.action}</td>
-                  <td className="px-3 py-2">{r.table_name}</td>
-                  <td className="px-3 py-2 max-w-md break-words font-mono text-xs text-stone-700">
-                    {r.action === "DELETE"
-                      ? JSON.stringify(r.old_row)
-                      : r.action === "INSERT"
-                        ? JSON.stringify(r.new_row)
-                        : "Δ " + JSON.stringify({ antes: r.old_row, despues: r.new_row })}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-hidden">
+      <div className="shrink-0">
+        <h1 className="text-3xl font-semibold">Historial de cambios</h1>
+        <p className="mt-2 text-stone-600">
+          Registro de altas, bajas y modificaciones en obras, ejemplares, ventas, archivos, permisos y perfiles. Busque por cualquier fragmento de texto (incluye el detalle) o filtre por
+          usuario. La tabla muestra los últimos 200 movimientos.
+        </p>
+      </div>
+
+      <AuditoriaTablaCliente filas={filas} className="min-h-0 flex-1" />
     </div>
   );
 }

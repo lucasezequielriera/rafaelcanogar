@@ -41,5 +41,6 @@ export async function guardarPermisosUsuario(userIdDestino: string, _prev: unkno
 
   revalidatePath("/admin/usuarios");
   revalidatePath(`/admin/usuarios/${userIdDestino}`);
+  revalidatePath("/admin/auditoria");
   return { ok: true as const };
 }

@@ -1,11 +1,12 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { getSupabaseAnonOrPublishableKey, getSupabaseProjectUrl } from "@/lib/supabase/env";
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
 
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const url = getSupabaseProjectUrl();
+  const anon = getSupabaseAnonOrPublishableKey();
 
   if (!url || !anon) {
     return supabaseResponse;
@@ -32,8 +33,9 @@ export async function updateSession(request: NextRequest) {
 
   const path = request.nextUrl.pathname;
   const isLogin = path === "/login" || path.startsWith("/login/");
+  const isPublicFicha = path === "/p" || path.startsWith("/p/");
 
-  if (!user && !isLogin) {
+  if (!user && !isLogin && !isPublicFicha) {
     const u = request.nextUrl.clone();
     u.pathname = "/login";
     return NextResponse.redirect(u);

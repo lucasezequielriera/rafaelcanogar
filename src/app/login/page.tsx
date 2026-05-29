@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
@@ -26,7 +27,8 @@ export default function LoginPage() {
         return;
       }
       router.refresh();
-      router.push("/obras");
+      // Ir a / para que el servidor redirija a la primera ruta permitida (obras, ventas, etc.); no forzar /obras.
+      router.replace("/");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error de conexión. Revise .env.local y reinicie npm run dev.");
     } finally {
@@ -36,8 +38,17 @@ export default function LoginPage() {
 
   return (
     <div className="mx-auto flex min-h-full max-w-md flex-col justify-center px-6 py-16">
-      <h1 className="mb-2 text-center text-3xl font-semibold tracking-tight text-stone-900">
-        Sistema Canogar
+      <h1 className="mb-2 flex justify-center">
+        <span className="relative h-10 w-[min(240px,85vw)] shrink-0 sm:h-12 sm:w-[min(280px,80vw)]">
+          <Image
+            src="/firma_transparente.png"
+            alt="Rafael Canogar"
+            fill
+            className="object-contain object-center"
+            sizes="(max-width: 640px) 85vw, 280px"
+            priority
+          />
+        </span>
       </h1>
       <p className="mb-10 text-center text-lg text-stone-600">
         Inventario de obras. Acceso restringido.

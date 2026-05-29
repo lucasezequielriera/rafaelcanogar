@@ -1,12 +1,39 @@
--- Tras crear las cuentas en Authentication (correo + contraseña), ejecute sustituyendo los correos reales:
-
--- update public.profiles
+-- =============================================================================
+-- Propietarios (is_owner): acceso total + menú Usuarios
+-- =============================================================================
+-- Cada usuario nuevo en Auth recibe profiles.is_owner = false y sin permisos.
+-- La app NO puede otorgar el primer propietario: hay que hacerlo aquí (SQL Editor
+-- en Supabase, rol postgres / sin pasar por RLS de la app).
+--
+-- 0) DIAGNÓSTICO: ver correos, id y si ya es propietario (ejecute sin comentar)
+-- -----------------------------------------------------------------------------
+-- select u.email, u.id, p.is_owner, p.nombre_completo
+-- from auth.users u
+-- left join public.profiles p on p.id = u.id
+-- order by u.created_at desc;
+--
+-- Si `is_owner` (y el resto de columnas de `p`) salen NULL en el SELECT, no hay fila en
+-- `public.profiles` para ese usuario (no es un boolean NULL en la tabla). Solución: ejecute
+-- primero el script `repair_perfiles_faltantes.sql` (apartado 1) y después el UPDATE de
+-- propietario más abajo.
+--
+-- 1) Desarrollo: primer admin (sustituya el correo; usa lower() por si el correo difiere en mayúsculas)
+-- -----------------------------------------------------------------------------
+-- update public.profiles p
 -- set is_owner = true
--- where id in (
---   select id from auth.users where email in (
---     'rafael@su-dominio.com',
---     'susana@su-dominio.com'
---   )
+-- from auth.users u
+-- where p.id = u.id and lower(u.email) = lower('test@test.com');
+--
+-- Compruebe que al menos 1 fila se actualizó; luego en la app: Cerrar sesión y volver a entrar.
+--
+-- 2) Producción: Rafael, Susana, etc. (varios correos a la vez)
+-- -----------------------------------------------------------------------------
+-- update public.profiles p
+-- set is_owner = true
+-- from auth.users u
+-- where p.id = u.id and lower(u.email) in (
+--   lower('rafael@su-dominio.com'),
+--   lower('susana@su-dominio.com')
 -- );
-
--- Opcional: asigne a Rafael y Susana todos los permisos explícitos (no es necesario si is_owner = true).
+--
+-- Con is_owner = true no hace falta insertar filas en permisos_usuario para ellos.

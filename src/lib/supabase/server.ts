@@ -1,9 +1,11 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
+import { getSupabaseAnonOrPublishableKey, getSupabaseProjectUrl } from "@/lib/supabase/env";
 
 export async function createSupabaseServerClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "https://placeholder.supabase.co";
-  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.invalid";
+  const url = getSupabaseProjectUrl() || "https://placeholder.supabase.co";
+  const anon =
+    getSupabaseAnonOrPublishableKey() || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.invalid";
 
   const cookieStore = await cookies();
 

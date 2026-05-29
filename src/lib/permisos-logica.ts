@@ -24,8 +24,9 @@ export function puedeImportarCsv(niveles: Record<RecursoKey, NivelPermiso>, isOw
 }
 
 export function hrefInicioPorPermisos(niveles: Record<RecursoKey, NivelPermiso>, isOwner: boolean): string {
-  if (puedeLeer(niveles, "obras", isOwner)) return "/obras";
+  if (puedeEscribir(niveles, "ventas", isOwner)) return "/dashboard";
   if (puedeLeer(niveles, "ventas", isOwner)) return "/ventas";
+  if (puedeLeer(niveles, "obras", isOwner)) return "/obras";
   if (puedeImportarCsv(niveles, isOwner)) return "/importar";
   if (puedeLeer(niveles, "auditoria", isOwner)) return "/admin/auditoria";
   if (isOwner) return "/admin/usuarios";

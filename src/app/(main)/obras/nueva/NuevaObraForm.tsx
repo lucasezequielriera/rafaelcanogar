@@ -1,11 +1,17 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import Link from "next/link";
 import { crearObra } from "@/app/actions/coleccion";
+import { EjemplaresEdicionFilas } from "@/components/EjemplaresEdicionFilas";
 
 export function NuevaObraForm() {
   const [state, formAction, pending] = useActionState(crearObra, null as { error?: string } | null);
+  /** Texto libre al editar (se puede vaciar); al salir del campo se normaliza. */
+  const [unidadesText, setUnidadesText] = useState("0");
+  const [unidadesCommitted, setUnidadesCommitted] = useState(0);
+  const parsedUnidades = unidadesText.trim() === "" ? NaN : parseInt(unidadesText, 10);
+  const unidadesEdicion = Number.isFinite(parsedUnidades) ? Math.max(0, parsedUnidades) : unidadesCommitted;
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
@@ -38,6 +44,30 @@ export function NuevaObraForm() {
             <span className="font-medium">Precio neto estimado (€)</span>
             <input name="precio_neto_estimado" type="number" step="0.01" className="rounded-lg border border-stone-300 px-3 py-3 text-lg" />
           </label>
+          <label className="flex flex-col gap-2 sm:col-span-2">
+            <span className="font-medium">Número de ejemplares de la edición</span>
+            {/* El valor enviado al servidor: los number controlados a veces no mandan bien el 0 */}
+            <input type="hidden" name="unidades_totales" value={String(unidadesEdicion)} />
+            <input
+              type="text"
+              inputMode="numeric"
+              autoComplete="off"
+              value={unidadesText}
+              onChange={(e) => setUnidadesText(e.target.value.replace(/\D/g, ""))}
+              onBlur={() => {
+                const p = unidadesText.trim() === "" ? NaN : parseInt(unidadesText, 10);
+                const next = Number.isFinite(p) ? Math.max(0, p) : unidadesCommitted;
+                setUnidadesCommitted(next);
+                setUnidadesText(String(next));
+              }}
+              className="rounded-lg border border-stone-300 px-3 py-3 text-lg tabular-nums"
+              aria-label="Número de ejemplares de la edición"
+            />
+            <span className="text-sm text-stone-600">
+              0 = no se controla el cupo ni se crean piezas aquí. Si indica un número N, aparecerán N bloques para etiqueta y ubicación de cada ejemplar; al guardar se crean todos y cuentan como disponibles hasta registrar ventas.
+            </span>
+          </label>
+          <EjemplaresEdicionFilas variant="nueva" cantidad={unidadesEdicion} existentesCount={0} />
           <label className="flex flex-col gap-2 sm:col-span-2">
             <span className="font-medium">Material</span>
             <input name="material" className="rounded-lg border border-stone-300 px-3 py-3 text-lg" />

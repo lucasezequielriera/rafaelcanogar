@@ -9,7 +9,7 @@ const sourceSans = Source_Sans_3({
 });
 
 export const metadata: Metadata = {
-  title: "Sistema Canogar — Inventario",
+  title: "Inventario de obras",
   description: "Gestión confidencial de obras, ejemplares y ventas.",
 };
 

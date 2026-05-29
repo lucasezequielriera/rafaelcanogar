@@ -1,4 +1,4 @@
--- Sistema Canogar: esquema inicial, RLS, auditoría y almacenamiento
+-- Inventario obras: esquema inicial, RLS, auditoría y almacenamiento
 -- Ejecutar en Supabase SQL Editor o con: supabase db push
 
 -- Tipos

@@ -1,19 +1,29 @@
 import { createBrowserClient } from "@supabase/ssr";
+import { getSupabaseAnonOrPublishableKey, getSupabaseProjectUrl } from "@/lib/supabase/env";
 
-const MSG_ENV = `Configure Supabase en la carpeta del proyecto (SistemaCanogar):
+const MSG_ENV = `La app no tiene URL/clave válidas de Supabase en el entorno donde corre el navegador.
 
-1. Cree el archivo .env.local (junto a package.json).
-2. Pegue NEXT_PUBLIC_SUPABASE_URL y NEXT_PUBLIC_SUPABASE_ANON_KEY desde Supabase → Project Settings → API.
-3. Detenga el servidor y ejecute de nuevo: npm run dev
+• Local: archivo .env.local en la carpeta del proyecto (junto a package.json) con:
+  NEXT_PUBLIC_SUPABASE_URL
+  y una de: NEXT_PUBLIC_SUPABASE_ANON_KEY (JWT legacy) o NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY (sb_publishable_…)
+  Luego reinicie: npm run dev
 
-(Sin esto la app no puede conectar con su base de datos.)`;
+• Vercel (o similar): en el proyecto → Settings → Environment Variables, añada esas variables para Production (y Preview si usa previews). IMPORTANTE: tras guardarlas, haga Redeploy (Deployments → … → Redeploy). Next.js las incluye en el build; un deploy anterior no las tiene.
+
+Compruebe que la URL no sea el ejemplo (…xxxx…) ni contenga "placeholder". Copie Project URL y la clave publicable (o anon) desde Supabase → Project Settings → API.`;
+
+function esValorDeEjemploOInvalido(url: string): boolean {
+  const u = url.toLowerCase();
+  if (u.includes("placeholder.supabase.co")) return true;
+  if (u.includes("xxxx.supabase.co")) return true;
+  return false;
+}
 
 export function createSupabaseBrowserClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() ?? "";
-  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim() ?? "";
-  const esPlaceholder = url.includes("placeholder.supabase.co") || url === "https://xxxx.supabase.co";
+  const url = getSupabaseProjectUrl();
+  const anon = getSupabaseAnonOrPublishableKey();
 
-  if (!url || !anon || esPlaceholder) {
+  if (!url || !anon || esValorDeEjemploOInvalido(url)) {
     throw new Error(MSG_ENV);
   }
 
